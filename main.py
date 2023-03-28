@@ -1,9 +1,7 @@
 import click
 from connector import engine
 from sqlalchemy import text
-from sqlalchemy import Table
 from sqlalchemy.orm import Session
-from sqlalchemy import Table
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import exc
 import logging
@@ -141,6 +139,7 @@ def logic(qty_and_lines):
             else:
                 jsonb_data["allocated_qty"] = rem_qty
                 rem_qty = 0
+                break
     logging.info("updated data in memory, waiting for commit...")
 
 
