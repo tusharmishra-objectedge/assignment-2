@@ -1,3 +1,4 @@
+import click
 from connector import engine
 from sqlalchemy import text
 from sqlalchemy import Table
@@ -52,18 +53,18 @@ def import_csv_data(table, file, delimiter):
     return execute_query(stmt)
 
 
-def get_data(parms=None):
-    stmt = text(
-        """
-        SELECT id, total_qty, subscription_lines, customer_sfdc_account_id, partner_sfdc_account_id
-        FROM customer_partner_relation_table
-        ORDER BY partner_sfdc_account_id, customer_sfdc_account_id
-        """
-    )
-    return execute_query(stmt, params=None, fetch=True)
+def get_data(params=None):
+    stmt = "SELECT id, total_qty, subscription_lines, customer_sfdc_account_id FROM customer_partner_relation_table WHERE 1=1 "
+    if params:
+        if params["customer"]:
+            stmt += f" AND customer_sfdc_account_id IN :customer "
+        if params["partner"]:
+            stmt += f"AND partner_sfdc_account_id IN :partner "
+    stmt += "ORDER BY partner_sfdc_account_id, customer_sfdc_account_id"
+    return execute_query(text(stmt), params, fetch=True)
 
 
-def logic():
+def logic(qty_and_lines):
     for tot_qty, list_data in qty_and_lines:
         rem_qty = tot_qty
         for jsonb_data in list_data:
@@ -77,10 +78,10 @@ def logic():
                 rem_qty = 0
 
 
-def process():
+def process(data):
     try:
-        cust = data[0][3]
         session = Session(engine)
+        cust = data[0][3]
 
         for row in data:
             datum = session.get(PrimaryTable, row[0])
@@ -89,7 +90,10 @@ def process():
             datum.subscription_lines = row[2]
             datum.customer_status = "READY"
             if row[3] != cust:
-                datum.partner_status = "READY"
+                stmt = text(
+                    f"UPDATE customer_partner_relation_table SET partner_status = 'READY' WHERE customer_sfdc_account_id = '{cust}';"
+                )
+                session.execute(stmt)
                 cust = row[3]
 
         session.commit()
@@ -101,41 +105,53 @@ def process():
 
 
 if __name__ == "__main__":
-    customer_partner_relation_table = {
-        "id": "serial PRIMARY KEY",
-        "customer_status": "text",
-        "partner_status": "text",
-        "cpqmodel": "text",
-        "customer_account_type": "text",
-        "customer_sfdc_account_id": "text",
-        "customer_woc_ref": "bigint",
-        "package": "text",
-        "partner_sfdc_account_id": "text",
-        "total_qty": "int",
-        "subscription_lines": "jsonb",
-        "entities": "jsonb",
-    }
-    create_table("customer_partner_relation_table", customer_partner_relation_table)
 
-    subscription_table = {
-        "id": "serial",
-        "qty": "int",
-        "cpqmodel": "text",
-        "package": "text",
-        "customer_sfdc_account_id": "text",
-        "allocated_qty": "int",
-        "subscription_line_id": "bigint",
-    }
-    create_table("subscription_table", subscription_table)
+    @click.command()
+    @click.option("--customer", "-c", multiple=True, default=None)
+    @click.option("--partner", "-p", multiple=True, default=None)
+    def runner(customer, partner):
+        data_params = {"customer": customer, "partner": partner}
 
-    import_csv_data(
-        "customer_partner_relation_table(customer_status,partner_status,cpqmodel,customer_account_type,customer_sfdc_account_id,customer_woc_ref,package,partner_sfdc_account_id,total_qty,subscription_lines)",
-        "D:/Python Assignments/assignment-2/output.csv",
-        "|",
-    )
+        if not data_params["customer"] and not data_params["partner"]:
+            data_params = None
 
-    data = get_data()
+        customer_partner_relation_table = {
+            "id": "serial PRIMARY KEY",
+            "customer_status": "text",
+            "partner_status": "text",
+            "cpqmodel": "text",
+            "customer_account_type": "text",
+            "customer_sfdc_account_id": "text",
+            "customer_woc_ref": "bigint",
+            "package": "text",
+            "partner_sfdc_account_id": "text",
+            "total_qty": "int",
+            "subscription_lines": "jsonb",
+            "entities": "jsonb",
+        }
+        create_table("customer_partner_relation_table", customer_partner_relation_table)
 
-    qty_and_lines = [(t[1], t[2]) for t in data]
-    logic()
-    process()
+        subscription_table = {
+            "id": "serial",
+            "qty": "int",
+            "cpqmodel": "text",
+            "package": "text",
+            "customer_sfdc_account_id": "text",
+            "allocated_qty": "int",
+            "subscription_line_id": "bigint",
+        }
+        create_table("subscription_table", subscription_table)
+
+        ##    import_csv_data(
+        ##        "customer_partner_relation_table(customer_status,partner_status,cpqmodel,customer_account_type,customer_sfdc_account_id,customer_woc_ref,package,partner_sfdc_account_id,total_qty,subscription_lines)",
+        ##        "D:/Python Assignments/assignment-2/output.csv",
+        ##        "|",
+        ##    )
+
+        data = get_data(data_params)
+        print(data, data_params)
+        qty_and_lines = [(t[1], t[2]) for t in data]
+        logic(qty_and_lines)
+        process(data)
+
+    runner()
