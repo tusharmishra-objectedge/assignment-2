@@ -48,6 +48,36 @@ def create_table(name, columns):
     return execute_query(stmt)
 
 
+def create_views():
+    stmt = text(
+        """CREATE OR REPLACE VIEW v1 AS
+SELECT partner_sfdc_account_id as partner, COUNT(customer_sfdc_account_id) as no_of_customer
+from customer_partner_relation_table group by partner;"""
+    )
+    execute_query(stmt)
+
+    stmt = text(
+        """CREATE OR REPLACE VIEW v2 AS
+SELECT customer_sfdc_account_id as customer, SUM((subscription_line->>'allocated_qty')::int) as total_allocated_qty
+FROM customer_partner_relation_table, jsonb_array_elements(subscription_lines) as subscription_line
+GROUP BY customer;"""
+    )
+    execute_query(stmt)
+
+    stmt = text(
+        """CREATE OR REPLACE VIEW v3 AS
+SELECT partner_sfdc_account_id as partner, SUM((subscription_line->>'allocated_qty')::int) as total_allocated_qty
+FROM customer_partner_relation_table, jsonb_array_elements(subscription_lines) as subscription_line
+GROUP BY partner;"""
+    )
+    execute_query(stmt)
+
+
+def get_view(name):
+    stmt = f"SELECT * FROM {name};"
+    execute_query(stmt, fetch=True)
+
+
 def import_csv_data(table, file, delimiter):
     stmt = text(f"COPY {table} FROM '{file}' DELIMITER '{delimiter}' CSV HEADER")
     return execute_query(stmt)
@@ -142,16 +172,17 @@ if __name__ == "__main__":
         }
         create_table("subscription_table", subscription_table)
 
-        ##    import_csv_data(
-        ##        "customer_partner_relation_table(customer_status,partner_status,cpqmodel,customer_account_type,customer_sfdc_account_id,customer_woc_ref,package,partner_sfdc_account_id,total_qty,subscription_lines)",
-        ##        "D:/Python Assignments/assignment-2/output.csv",
-        ##        "|",
-        ##    )
+        import_csv_data(
+            "customer_partner_relation_table(customer_status,partner_status,cpqmodel,customer_account_type,customer_sfdc_account_id,customer_woc_ref,package,partner_sfdc_account_id,total_qty,subscription_lines)",
+            "D:/Python Assignments/assignment-2/output.csv",
+            "|",
+        )
 
         data = get_data(data_params)
-        print(data, data_params)
         qty_and_lines = [(t[1], t[2]) for t in data]
         logic(qty_and_lines)
         process(data)
+
+        create_views()
 
     runner()
