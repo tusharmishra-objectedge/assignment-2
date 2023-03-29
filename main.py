@@ -62,22 +62,26 @@ DECLARE
     cust TEXT = '';
 
 BEGIN
-    SELECT customer_sfdc_account_id INTO cust FROM customer_partner_relation_table ORDER BY partner_sfdc_account_id, customer_sfdc_account_id LIMIT 1;
-    FOR row IN SELECT id, total_qty, subscription_lines, customer_sfdc_account_id  FROM customer_partner_relation_table WHERE 1=1 """
-
+    SELECT customer_sfdc_account_id INTO cust FROM customer_partner_relation_table WHERE 1=1 """
     if params:
         if params["customer"]:
             stmt += f"AND customer_sfdc_account_id IN :customer "
         if params["partner"]:
             stmt += f"AND partner_sfdc_account_id IN :partner "
-
+    stmt += """ORDER BY partner_sfdc_account_id, customer_sfdc_account_id LIMIT 1;
+    FOR row IN SELECT id, total_qty, subscription_lines, customer_sfdc_account_id  FROM customer_partner_relation_table WHERE 1=1 """
+    if params:
+        if params["customer"]:
+            stmt += f"AND customer_sfdc_account_id IN :customer "
+        if params["partner"]:
+            stmt += f"AND partner_sfdc_account_id IN :partner "
     stmt += """ORDER BY partner_sfdc_account_id, customer_sfdc_account_id
     LOOP
+    BEGIN
         UPDATE customer_partner_relation_table
         SET customer_status = 'IN_PROGRESS',
             partner_status = 'IN_PROGRESS'
         WHERE id = row.id;
-
 
         FOR jsonb_data IN SELECT (row.subscription_lines ->> i)::JSONB AS data, i FROM generate_series(0, jsonb_array_length(row.subscription_lines) - 1) AS i
         LOOP
@@ -88,7 +92,7 @@ BEGIN
                 jsonb_data.data = jsonb_set(jsonb_data.data, '{allocated_qty}', to_jsonb(row.total_qty));
                 row.total_qty := 0;
             END IF;
-		row.subscription_lines[jsonb_data.i] = jsonb_data.data;
+        row.subscription_lines[jsonb_data.i] = jsonb_data.data;
         END LOOP;
 
         UPDATE customer_partner_relation_table
@@ -105,16 +109,21 @@ BEGIN
             WHERE customer_sfdc_account_id = cust;
             cust := row.customer_sfdc_account_id;
         END IF;
-    END LOOP;
+        EXCEPTION WHEN OTHERS THEN
+            UPDATE customer_partner_relation_table
+            SET customer_status = 'ERROR'
+            WHERE customer_sfdc_account_id = cust;
+        END;
 
-    UPDATE customer_partner_relation_table
-    SET partner_status = 'READY'
-    WHERE customer_sfdc_account_id = cust;
-
-END;
-$$
-LANGUAGE plpgsql;
-"""
+    END LOOP;"""
+    if not params:
+        stmt += """UPDATE customer_partner_relation_table
+            SET partner_status = 'READY'
+            WHERE customer_sfdc_account_id = cust;"""
+    stmt += """
+    END;
+    $$
+    LANGUAGE plpgsql;"""
 
     execute_query(text(stmt), params)
     logging.info("created the update function!")
