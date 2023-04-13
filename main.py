@@ -40,14 +40,13 @@ def execute_query(query, params=None, fetch=False):
 
 
 def fill_subscription_table():
-    stmt = text(
-        """INSERT INTO subscription_table (qty, cpqmodel, package, customer_sfdc_account_id, allocated_qty, subscription_line_id) SELECT
-total_qty, cpqmodel, package, customer_sfdc_account_id,
-(subscription_lines_array->>'allocated_qty')::int AS allocated_qty,
-(subscription_lines_array->>'subscription_line_id')::bigint AS subscription_line_id
-FROM customer_partner_relation_table, jsonb_array_elements(subscription_lines) AS subscription_lines_array
-WHERE customer_status = 'READY';"""
-    )
+    stmt = text("""INSERT INTO subscription_table (qty, cpqmodel, package, customer_sfdc_account_id, allocated_qty, subscription_line_id) SELECT
+                total_qty, cpqmodel, package, customer_sfdc_account_id,
+                (subscription_lines_array->>'allocated_qty')::int AS allocated_qty,
+                (subscription_lines_array->>'subscription_line_id')::bigint AS subscription_line_id
+                FROM customer_partner_relation_table, jsonb_array_elements(subscription_lines) AS subscription_lines_array
+                WHERE customer_status = 'READY';
+                """)
     execute_query(stmt)
     logging.info("Added data to subscription table!")
 
